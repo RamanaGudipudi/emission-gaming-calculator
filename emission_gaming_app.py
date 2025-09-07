@@ -1,19 +1,7 @@
-st.markdown("""
-    **🎯 The Scope 3 Gaming Problem**
-    
-    **How it works:**
-    - Purchased goods & services dominate F&B emissions
-    - Multiple LCA databases offer different factors
-    - Strategic selection can exceed SBTi requirements
-    - No verification of factor choice rationale
-    
-    **Impact:**
-    - Undermines SBTi credibility
-    - Creates unfair competitive advantages
-    - Enables large-scale greenwashing
-    """)import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Page configuration
 st.set_page_config(
@@ -114,13 +102,6 @@ growth_rate = st.sidebar.slider(
     help="Business growth rate affecting production volumes"
 )
 
-# Scope breakdown
-st.sidebar.subheader("Emission Scope Breakdown")
-scope_1_pct = st.sidebar.slider("Scope 1 (%)", 0, 20, 5, help="Direct emissions from operations")
-scope_2_pct = st.sidebar.slider("Scope 2 (%)", 0, 20, 5, help="Purchased energy emissions")
-scope_3_pct = 100 - scope_1_pct - scope_2_pct
-st.sidebar.write(f"**Scope 3: {scope_3_pct}%** (Purchased goods - where gaming occurs)")
-
 # Monte Carlo settings
 st.sidebar.subheader("Simulation Settings")
 n_iterations = st.sidebar.selectbox("Monte Carlo Iterations", [500, 1000, 2000], index=1)
@@ -135,7 +116,7 @@ def calculate_weighted_factor(scenario):
     return weighted_sum
 
 # Main visualization section
-st.subheader("🎮 Gaming Impact: Total Company Emissions vs. SBTi Pathway")
+st.subheader("🎮 Scope 3 Gaming Impact vs. SBTi Pathway")
 
 # Calculate weighted factors for scenarios
 scenarios = {
@@ -154,69 +135,16 @@ sbti_reduction_rate = 4.2  # Annual percentage reduction required
 years = list(range(2025, 2031))
 base_year = 2025
 
-# Calculate total emissions for different scenarios
+# Calculate Scope 3 emissions trajectories with Monte Carlo for confidence intervals
 @st.cache_data
-def calculate_emissions_trajectory(scenarios, annual_production, growth_rate, scope_breakdown, sbti_rate):
-    scope_1_pct, scope_2_pct, scope_3_pct = scope_breakdown
-    
-    trajectories = {}
-    
-    for scenario_name, scope_3_factor in scenarios.items():
-        yearly_data = []
-        
-        for year in years:
-            year_index = year - base_year
-            
-            # Production growth
-            production = annual_production * (1 + growth_rate/100)**year_index
-            
-            # Scope 3 emissions (where gaming occurs)
-            scope_3_emissions = production * scope_3_factor
-            
-            # Scope 1 & 2 (minimal gaming potential, assume 0.5 tCO2e/tonne)
-            scope_1_2_factor = 0.5  # Conservative estimate
-            scope_1_2_emissions = production * scope_1_2_factor
-            
-            # Total emissions with scope breakdown
-            total_scope_3 = scope_3_emissions * (scope_3_pct / 100)
-            total_scope_1_2 = scope_1_2_emissions * ((scope_1_pct + scope_2_pct) / 100)
-            total_emissions = total_scope_3 + total_scope_1_2
-            
-            yearly_data.append({
-                'Year': year,
-                'Production': production,
-                'Scope_3_Emissions': total_scope_3,
-                'Scope_1_2_Emissions': total_scope_1_2,
-                'Total_Emissions': total_emissions
-            })
-        
-        trajectories[scenario_name] = yearly_data
-    
-    # SBTi compliant pathway
-    sbti_pathway = []
-    base_emissions = trajectories["Conservative Selection"][0]['Total_Emissions']
-    
-    for year in years:
-        year_index = year - base_year
-        sbti_emissions = base_emissions * ((1 - sbti_rate/100)**year_index)
-        sbti_pathway.append({
-            'Year': year,
-            'SBTi_Emissions': sbti_emissions
-        })
-    
-    return trajectories, sbti_pathway
-
-# Calculate trajectories with Monte Carlo for confidence intervals
-@st.cache_data
-def calculate_trajectories_with_ci(scenarios, production, growth, scope_breakdown, sbti_rate, n_iterations, uncertainty):
-    scope_1_pct, scope_2_pct, scope_3_pct = scope_breakdown
+def calculate_scope3_trajectories_with_ci(scenarios, production, growth, sbti_rate, n_iterations, uncertainty):
     np.random.seed(42)
     
     # Store all iterations for each scenario and year
     all_results = {scenario: {year: [] for year in years} for scenario in scenarios.keys()}
     
     for iteration in range(n_iterations):
-        for scenario, base_scope_3_factor in scenarios.items():
+        for scenario, base_factor in scenarios.items():
             for year in years:
                 year_index = year - base_year
                 
@@ -225,14 +153,12 @@ def calculate_trajectories_with_ci(scenarios, production, growth, scope_breakdow
                 
                 # Add uncertainty to emission factor
                 variation = np.random.uniform(-uncertainty/100, uncertainty/100)
-                varied_factor = base_scope_3_factor * (1 + variation)
+                varied_factor = base_factor * (1 + variation)
                 
-                # Calculate emissions
-                scope_3_emissions = production_year * varied_factor * (scope_3_pct / 100)
-                scope_1_2_emissions = production_year * 0.5 * ((scope_1_pct + scope_2_pct) / 100)
-                total_emissions = scope_3_emissions + scope_1_2_emissions
+                # Calculate Scope 3 emissions only
+                scope_3_emissions = production_year * varied_factor
                 
-                all_results[scenario][year].append(total_emissions)
+                all_results[scenario][year].append(scope_3_emissions)
     
     # Calculate statistics for each scenario and year
     trajectories_with_ci = {}
@@ -250,13 +176,12 @@ def calculate_trajectories_with_ci(scenarios, production, growth, scope_breakdow
 
 # Calculate trajectories with confidence intervals
 with st.spinner("Calculating confidence intervals..."):
-    trajectories_ci = calculate_trajectories_with_ci(
-        scenarios, annual_production, growth_rate, 
-        (scope_1_pct, scope_2_pct, scope_3_pct), sbti_reduction_rate,
+    trajectories_ci = calculate_scope3_trajectories_with_ci(
+        scenarios, annual_production, growth_rate, sbti_reduction_rate,
         n_iterations, uncertainty
     )
 
-# Calculate SBTi pathway
+# Calculate SBTi pathway (based on conservative baseline)
 sbti_data = []
 base_emissions = trajectories_ci["Conservative Selection"][2025]['mean']
 for year in years:
@@ -295,9 +220,6 @@ chart_data_upper = chart_data_upper.set_index('Year')
 chart_data_lower = chart_data_lower.set_index('Year')
 
 # Create the enhanced visualization with confidence intervals
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-
 fig, ax = plt.subplots(figsize=(12, 8))
 
 # Color scheme
@@ -345,8 +267,8 @@ ax.plot(
 
 # Formatting
 ax.set_xlabel('Year', fontsize=12, fontweight='bold')
-ax.set_ylabel('Total Emissions (tCO₂e)', fontsize=12, fontweight='bold')
-ax.set_title('Gaming Impact: Total Company Emissions vs. SBTi Pathway\nwith 95% Confidence Intervals', 
+ax.set_ylabel('Scope 3 Emissions (tCO₂e)', fontsize=12, fontweight='bold')
+ax.set_title('Scope 3 Gaming Impact vs. SBTi Pathway\nwith 95% Confidence Intervals', 
              fontsize=14, fontweight='bold', pad=20)
 
 # Improve legend
@@ -403,22 +325,22 @@ with col3:
 
 with col4:
     st.metric(
-        "Scope 3 Dominance",
-        f"{scope_3_pct}%",
-        help="Percentage of total emissions from Scope 3 (gaming vulnerable)"
+        "Portfolio Products",
+        f"{len([p for p in product_mix.values() if p > 0])}",
+        help="Number of products in portfolio mix"
     )
 
 # Gaming mechanism explanation
-st.subheader("🔍 How Gaming Works")
+st.subheader("🔍 How Scope 3 Gaming Works")
 
 col_left, col_right = st.columns([1, 1])
 
 with col_left:
-    st.markdown("**Emission Factor Gaming Process:**")
+    st.markdown("**Scope 3 Gaming Process:**")
     st.markdown("""
     1. **Database Shopping**: Choose from multiple LCA databases
-    2. **Strategic Selection**: Pick lowest available factors
-    3. **Scope 3 Focus**: Target 90% of company emissions
+    2. **Strategic Selection**: Pick lowest available factors for purchased goods
+    3. **Scope 3 Focus**: Target purchased goods & services emissions
     4. **Compound Effect**: Gaming scales with business growth
     5. **SBTi Compliance**: Appear to meet 4.2% annual reduction
     """)
@@ -426,7 +348,7 @@ with col_left:
 with col_right:
     st.markdown("**Gaming vs. Reality:**")
     gaming_comparison = pd.DataFrame({
-        'Metric': ['2030 Emissions (tCO₂e)', 'Reduction from 2025', 'SBTi Compliant?'],
+        'Metric': ['2030 Scope 3 Emissions (tCO₂e)', 'Reduction from 2025', 'SBTi Compliant?'],
         'Conservative Factors': [
             f"{chart_data.loc[2030, 'Conservative Selection']:,.0f}",
             f"{((chart_data.loc[2025, 'Conservative Selection'] - chart_data.loc[2030, 'Conservative Selection']) / chart_data.loc[2025, 'Conservative Selection'] * 100):.1f}%",
@@ -441,12 +363,10 @@ with col_right:
     st.dataframe(gaming_comparison, use_container_width=True)
 
 # Monte Carlo Analysis
-st.subheader("🎲 Monte Carlo Gaming Analysis")
+st.subheader("🎲 Monte Carlo Analysis")
 
 @st.cache_data
-def run_gaming_monte_carlo(scenarios, production, growth, scope_breakdown, n_iterations, uncertainty):
-    scope_1_pct, scope_2_pct, scope_3_pct = scope_breakdown
-    
+def run_scope3_monte_carlo(scenarios, production, growth, n_iterations, uncertainty):
     np.random.seed(42)
     results = {scenario: [] for scenario in scenarios.keys()}
     
@@ -459,19 +379,16 @@ def run_gaming_monte_carlo(scenarios, production, growth, scope_breakdown, n_ite
             variation = np.random.uniform(-uncertainty/100, uncertainty/100)
             varied_factor = base_factor * (1 + variation)
             
-            # Calculate total emissions
-            scope_3_emissions = production_2030 * varied_factor * (scope_3_pct / 100)
-            scope_1_2_emissions = production_2030 * 0.5 * ((scope_1_pct + scope_2_pct) / 100)
-            total_emissions = scope_3_emissions + scope_1_2_emissions
+            # Calculate Scope 3 emissions only
+            scope_3_emissions = production_2030 * varied_factor
             
-            results[scenario].append(total_emissions)
+            results[scenario].append(scope_3_emissions)
     
     return results
 
 with st.spinner(f"Running {n_iterations:,} Monte Carlo iterations..."):
-    mc_results = run_gaming_monte_carlo(
-        scenarios, annual_production, growth_rate, 
-        (scope_1_pct, scope_2_pct, scope_3_pct), n_iterations, uncertainty
+    mc_results = run_scope3_monte_carlo(
+        scenarios, annual_production, growth_rate, n_iterations, uncertainty
     )
 
 # Calculate statistics
@@ -488,7 +405,7 @@ for scenario, data in mc_results.items():
 col_mc1, col_mc2 = st.columns(2)
 
 with col_mc1:
-    st.markdown("**2030 Emissions with Uncertainty (tCO₂e)**")
+    st.markdown("**2030 Scope 3 Emissions with Uncertainty (tCO₂e)**")
     mc_summary = []
     for scenario, stats in mc_stats.items():
         mc_summary.append({
@@ -565,10 +482,10 @@ with col_cta1:
 
 with col_cta2:
     st.markdown("""
-    **🎯 The SBTi Gaming Problem**
+    **🎯 The Scope 3 Gaming Problem**
     
     **How it works:**
-    - 90% of F&B emissions are Scope 3 (purchasd goods)
+    - Purchased goods & services dominate F&B emissions
     - Multiple LCA databases offer different factors
     - Strategic selection can exceed SBTi requirements
     - No verification of factor choice rationale
