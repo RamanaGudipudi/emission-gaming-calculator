@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import plotly.express as px
 
 # Page configuration
 st.set_page_config(
@@ -189,38 +190,8 @@ for year in years:
     sbti_emissions = base_emissions * ((1 - sbti_reduction_rate/100)**year_index)
     sbti_data.append({'Year': year, 'SBTi_Emissions': sbti_emissions})
 
-# Create comprehensive chart data with confidence intervals
-chart_data_mean = pd.DataFrame()
-chart_data_upper = pd.DataFrame()
-chart_data_lower = pd.DataFrame()
-
-for year in years:
-    row_mean = {'Year': year}
-    row_upper = {'Year': year}
-    row_lower = {'Year': year}
-    
-    for scenario in scenarios.keys():
-        stats = trajectories_ci[scenario][year]
-        row_mean[scenario] = stats['mean']
-        row_upper[scenario] = stats['p97_5']
-        row_lower[scenario] = stats['p2_5']
-    
-    # Add SBTi pathway
-    sbti_value = next(d for d in sbti_data if d['Year'] == year)['SBTi_Emissions']
-    row_mean['SBTi 4.2% Pathway'] = sbti_value
-    row_upper['SBTi 4.2% Pathway'] = sbti_value
-    row_lower['SBTi 4.2% Pathway'] = sbti_value
-    
-    chart_data_mean = pd.concat([chart_data_mean, pd.DataFrame([row_mean])], ignore_index=True)
-    chart_data_upper = pd.concat([chart_data_upper, pd.DataFrame([row_upper])], ignore_index=True)
-    chart_data_lower = pd.concat([chart_data_lower, pd.DataFrame([row_lower])], ignore_index=True)
-
-chart_data_mean = chart_data_mean.set_index('Year')
-chart_data_upper = chart_data_upper.set_index('Year')
-chart_data_lower = chart_data_lower.set_index('Year')
-
-# Create the enhanced visualization with confidence intervals
-fig, ax = plt.subplots(figsize=(12, 8))
+# Create Plotly visualization with confidence intervals
+fig = go.Figure()
 
 # Color scheme
 colors = {
@@ -230,65 +201,92 @@ colors = {
     'SBTi 4.2% Pathway': '#45b7d1'       # Blue
 }
 
-# Plot confidence intervals as shaded areas
+# Add confidence intervals as filled areas
 for scenario in ['Conservative Selection', 'Moderate Selection', 'Aggressive Selection']:
-    ax.fill_between(
-        chart_data_mean.index,
-        chart_data_lower[scenario],
-        chart_data_upper[scenario],
-        alpha=0.2,
-        color=colors[scenario],
-        label=f'{scenario} 95% CI'
-    )
+    upper_values = [trajectories_ci[scenario][year]['p97_5'] for year in years]
+    lower_values = [trajectories_ci[scenario][year]['p2_5'] for year in years]
+    
+    # Add upper bound (invisible line)
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=upper_values,
+        mode='lines',
+        line=dict(color='rgba(255,255,255,0)'),
+        showlegend=False,
+        hoverinfo='skip'
+    ))
+    
+    # Add lower bound and fill to upper
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=lower_values,
+        mode='lines',
+        fill='tonexty',
+        fillcolor=colors[scenario].replace('#', 'rgba(') + ', 0.2)'.replace(')', ',0.2)'),
+        line=dict(color='rgba(255,255,255,0)'),
+        name=f'{scenario} 95% CI',
+        showlegend=True,
+        hoverinfo='skip'
+    ))
 
-# Plot mean lines
+# Add mean lines
 for scenario in scenarios.keys():
-    ax.plot(
-        chart_data_mean.index,
-        chart_data_mean[scenario],
-        color=colors[scenario],
-        linewidth=3,
-        label=f'{scenario} (Mean)',
-        marker='o',
-        markersize=6
-    )
+    mean_values = [trajectories_ci[scenario][year]['mean'] for year in years]
+    
+    fig.add_trace(go.Scatter(
+        x=years,
+        y=mean_values,
+        mode='lines+markers',
+        line=dict(color=colors[scenario], width=3),
+        marker=dict(size=8),
+        name=f'{scenario} (Mean)',
+        hovertemplate=f'{scenario}<br>Year: %{{x}}<br>Emissions: %{{y:,.0f}} tCO₂e<extra></extra>'
+    ))
 
-# Plot SBTi pathway
-ax.plot(
-    chart_data_mean.index,
-    chart_data_mean['SBTi 4.2% Pathway'],
-    color=colors['SBTi 4.2% Pathway'],
-    linewidth=3,
-    linestyle='--',
-    label='SBTi 4.2% Pathway',
-    marker='s',
-    markersize=6
+# Add SBTi pathway
+sbti_values = [d['SBTi_Emissions'] for d in sbti_data]
+fig.add_trace(go.Scatter(
+    x=years,
+    y=sbti_values,
+    mode='lines+markers',
+    line=dict(color=colors['SBTi 4.2% Pathway'], width=3, dash='dash'),
+    marker=dict(size=8, symbol='square'),
+    name='SBTi 4.2% Pathway',
+    hovertemplate='SBTi Pathway<br>Year: %{x}<br>Emissions: %{y:,.0f} tCO₂e<extra></extra>'
+))
+
+# Update layout
+fig.update_layout(
+    title={
+        'text': 'Scope 3 Gaming Impact vs. SBTi Pathway<br><sub>with 95% Confidence Intervals</sub>',
+        'x': 0.5,
+        'font': {'size': 16}
+    },
+    xaxis_title='Year',
+    yaxis_title='Scope 3 Emissions (tCO₂e)',
+    height=600,
+    hovermode='x unified',
+    legend=dict(
+        yanchor="top",
+        y=0.99,
+        xanchor="left",
+        x=1.01
+    )
 )
 
-# Formatting
-ax.set_xlabel('Year', fontsize=12, fontweight='bold')
-ax.set_ylabel('Scope 3 Emissions (tCO₂e)', fontsize=12, fontweight='bold')
-ax.set_title('Scope 3 Gaming Impact vs. SBTi Pathway\nwith 95% Confidence Intervals', 
-             fontsize=14, fontweight='bold', pad=20)
-
-# Improve legend
-ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
-
-# Grid and styling
-ax.grid(True, alpha=0.3)
-ax.set_facecolor('#f8f9fa')
-
-# Format y-axis with thousands separator
-ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
-
-# Tight layout
-plt.tight_layout()
-
 # Display the plot
-st.pyplot(fig)
+st.plotly_chart(fig, use_container_width=True)
 
-# Store chart_data for metrics (use mean values)
-chart_data = chart_data_mean
+# Create chart_data for metrics
+chart_data = pd.DataFrame()
+for year in years:
+    row = {'Year': year}
+    for scenario in scenarios.keys():
+        row[scenario] = trajectories_ci[scenario][year]['mean']
+    row['SBTi 4.2% Pathway'] = next(d for d in sbti_data if d['Year'] == year)['SBTi_Emissions']
+    chart_data = pd.concat([chart_data, pd.DataFrame([row])], ignore_index=True)
+
+chart_data = chart_data.set_index('Year')
 
 # Key metrics row
 col1, col2, col3, col4 = st.columns(4)
