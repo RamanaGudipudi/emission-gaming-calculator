@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import plotly.express as px
+import altair as alt
+
+# Enable Altair to work with Streamlit
+alt.data_transformers.enable('json')
 
 # Page configuration
 st.set_page_config(
@@ -190,94 +192,100 @@ for year in years:
     sbti_emissions = base_emissions * ((1 - sbti_reduction_rate/100)**year_index)
     sbti_data.append({'Year': year, 'SBTi_Emissions': sbti_emissions})
 
-# Create Plotly visualization with confidence intervals
-fig = go.Figure()
+# Prepare data for Altair visualization with confidence intervals
+chart_data_list = []
 
-# Color scheme
-colors = {
-    'Conservative Selection': '#ff6b6b',  # Red
-    'Moderate Selection': '#ffa500',      # Orange  
-    'Aggressive Selection': '#4ecdc4',    # Teal
-    'SBTi 4.2% Pathway': '#45b7d1'       # Blue
+# Add confidence intervals and means for each scenario
+scenario_colors = {
+    'Conservative Selection': '#ff6b6b',
+    'Moderate Selection': '#ffa500', 
+    'Aggressive Selection': '#4ecdc4'
 }
 
-# Add confidence intervals as filled areas
-for scenario in ['Conservative Selection', 'Moderate Selection', 'Aggressive Selection']:
-    upper_values = [trajectories_ci[scenario][year]['p97_5'] for year in years]
-    lower_values = [trajectories_ci[scenario][year]['p2_5'] for year in years]
+for year in years:
+    for scenario in scenarios.keys():
+        stats = trajectories_ci[scenario][year]
+        
+        # Add confidence interval data points
+        chart_data_list.extend([
+            {
+                'Year': year,
+                'Scenario': scenario,
+                'Type': 'Mean',
+                'Emissions': stats['mean'],
+                'Lower_CI': stats['p2_5'],
+                'Upper_CI': stats['p97_5']
+            }
+        ])
     
-    # Add upper bound (invisible line)
-    fig.add_trace(go.Scatter(
-        x=years,
-        y=upper_values,
-        mode='lines',
-        line=dict(color='rgba(255,255,255,0)'),
-        showlegend=False,
-        hoverinfo='skip'
-    ))
-    
-    # Add lower bound and fill to upper
-    fig.add_trace(go.Scatter(
-        x=years,
-        y=lower_values,
-        mode='lines',
-        fill='tonexty',
-        fillcolor=colors[scenario].replace('#', 'rgba(') + ', 0.2)'.replace(')', ',0.2)'),
-        line=dict(color='rgba(255,255,255,0)'),
-        name=f'{scenario} 95% CI',
-        showlegend=True,
-        hoverinfo='skip'
-    ))
+    # Add SBTi pathway
+    sbti_value = next(d for d in sbti_data if d['Year'] == year)['SBTi_Emissions']
+    chart_data_list.append({
+        'Year': year,
+        'Scenario': 'SBTi 4.2% Pathway',
+        'Type': 'SBTi',
+        'Emissions': sbti_value,
+        'Lower_CI': sbti_value,
+        'Upper_CI': sbti_value
+    })
 
-# Add mean lines
-for scenario in scenarios.keys():
-    mean_values = [trajectories_ci[scenario][year]['mean'] for year in years]
-    
-    fig.add_trace(go.Scatter(
-        x=years,
-        y=mean_values,
-        mode='lines+markers',
-        line=dict(color=colors[scenario], width=3),
-        marker=dict(size=8),
-        name=f'{scenario} (Mean)',
-        hovertemplate=f'{scenario}<br>Year: %{{x}}<br>Emissions: %{{y:,.0f}} tCO₂e<extra></extra>'
-    ))
+chart_df = pd.DataFrame(chart_data_list)
 
-# Add SBTi pathway
-sbti_values = [d['SBTi_Emissions'] for d in sbti_data]
-fig.add_trace(go.Scatter(
-    x=years,
-    y=sbti_values,
-    mode='lines+markers',
-    line=dict(color=colors['SBTi 4.2% Pathway'], width=3, dash='dash'),
-    marker=dict(size=8, symbol='square'),
-    name='SBTi 4.2% Pathway',
-    hovertemplate='SBTi Pathway<br>Year: %{x}<br>Emissions: %{y:,.0f} tCO₂e<extra></extra>'
-))
+# Create Altair chart with confidence intervals
+base_chart = alt.Chart(chart_df).add_selection(
+    alt.selection_interval()
+)
 
-# Update layout
-fig.update_layout(
-    title={
-        'text': 'Scope 3 Gaming Impact vs. SBTi Pathway<br><sub>with 95% Confidence Intervals</sub>',
-        'x': 0.5,
-        'font': {'size': 16}
-    },
-    xaxis_title='Year',
-    yaxis_title='Scope 3 Emissions (tCO₂e)',
-    height=600,
-    hovermode='x unified',
-    legend=dict(
-        yanchor="top",
-        y=0.99,
-        xanchor="left",
-        x=1.01
+# Confidence intervals as bands
+confidence_bands = base_chart.mark_area(
+    opacity=0.2
+).encode(
+    x=alt.X('Year:O', title='Year'),
+    y=alt.Y('Lower_CI:Q', title='Scope 3 Emissions (tCO₂e)', scale=alt.Scale(zero=False)),
+    y2=alt.Y2('Upper_CI:Q'),
+    color=alt.Color('Scenario:N', 
+                   scale=alt.Scale(
+                       domain=['Conservative Selection', 'Moderate Selection', 'Aggressive Selection', 'SBTi 4.2% Pathway'],
+                       range=['#ff6b6b', '#ffa500', '#4ecdc4', '#45b7d1']
+                   ),
+                   legend=alt.Legend(title="95% Confidence Intervals"))
+).transform_filter(
+    alt.datum.Scenario != 'SBTi 4.2% Pathway'
+)
+
+# Mean lines
+mean_lines = base_chart.mark_line(
+    strokeWidth=3,
+    point=alt.OverlayMarkDef(size=80)
+).encode(
+    x=alt.X('Year:O'),
+    y=alt.Y('Emissions:Q'),
+    color=alt.Color('Scenario:N',
+                   scale=alt.Scale(
+                       domain=['Conservative Selection', 'Moderate Selection', 'Aggressive Selection', 'SBTi 4.2% Pathway'],
+                       range=['#ff6b6b', '#ffa500', '#4ecdc4', '#45b7d1']
+                   ),
+                   legend=alt.Legend(title="Mean Trajectories")),
+    strokeDash=alt.condition(alt.datum.Scenario == 'SBTi 4.2% Pathway', alt.value([5, 5]), alt.value([0]))
+)
+
+# Combine charts
+final_chart = (confidence_bands + mean_lines).resolve_scale(
+    color='independent'
+).properties(
+    width=700,
+    height=400,
+    title=alt.TitleParams(
+        text=['Scope 3 Gaming Impact vs. SBTi Pathway', 'with 95% Confidence Intervals'],
+        fontSize=16,
+        anchor='start'
     )
 )
 
-# Display the plot
-st.plotly_chart(fig, use_container_width=True)
+# Display the chart
+st.altair_chart(final_chart, use_container_width=True)
 
-# Create chart_data for metrics
+# Store chart_data for metrics
 chart_data = pd.DataFrame()
 for year in years:
     row = {'Year': year}
@@ -449,14 +457,26 @@ for product, factors in emission_factors.items():
 df_products = pd.DataFrame(product_gaming_data)
 st.dataframe(df_products, use_container_width=True)
 
-# Product gaming visualization
+# Product gaming visualization using Altair
 st.markdown("**Gaming Potential by Product**")
-gaming_chart_data = pd.DataFrame({
+gaming_data = pd.DataFrame({
     'Product': list(emission_factors.keys()),
     'Gaming Potential (%)': [factors['Gaming Potential'] for factors in emission_factors.values()]
 })
-gaming_chart_data = gaming_chart_data.set_index('Product')
-st.bar_chart(gaming_chart_data)
+
+gaming_chart = alt.Chart(gaming_data).mark_bar().encode(
+    x=alt.X('Product:N', title='Product'),
+    y=alt.Y('Gaming Potential (%):Q', title='Gaming Potential (%)'),
+    color=alt.Color('Gaming Potential (%):Q', 
+                   scale=alt.Scale(scheme='redyellowgreen', reverse=True),
+                   legend=None),
+    tooltip=['Product:N', 'Gaming Potential (%):Q']
+).properties(
+    width=600,
+    height=300
+)
+
+st.altair_chart(gaming_chart, use_container_width=True)
 
 # Call to action and research context
 st.markdown("---")
