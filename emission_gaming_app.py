@@ -1,4 +1,17 @@
-import streamlit as st
+st.markdown("""
+    **🎯 The Scope 3 Gaming Problem**
+    
+    **How it works:**
+    - Purchased goods & services dominate F&B emissions
+    - Multiple LCA databases offer different factors
+    - Strategic selection can exceed SBTi requirements
+    - No verification of factor choice rationale
+    
+    **Impact:**
+    - Undermines SBTi credibility
+    - Creates unfair competitive advantages
+    - Enables large-scale greenwashing
+    """)import streamlit as st
 import pandas as pd
 import numpy as np
 
@@ -193,29 +206,167 @@ def calculate_emissions_trajectory(scenarios, annual_production, growth_rate, sc
     
     return trajectories, sbti_pathway
 
-# Calculate trajectories
-trajectories, sbti_pathway = calculate_emissions_trajectory(
-    scenarios, annual_production, growth_rate, 
-    (scope_1_pct, scope_2_pct, scope_3_pct), sbti_reduction_rate
-)
-
-# Create main chart data
-chart_data = pd.DataFrame()
-for year in years:
-    row = {'Year': year}
+# Calculate trajectories with Monte Carlo for confidence intervals
+@st.cache_data
+def calculate_trajectories_with_ci(scenarios, production, growth, scope_breakdown, sbti_rate, n_iterations, uncertainty):
+    scope_1_pct, scope_2_pct, scope_3_pct = scope_breakdown
+    np.random.seed(42)
+    
+    # Store all iterations for each scenario and year
+    all_results = {scenario: {year: [] for year in years} for scenario in scenarios.keys()}
+    
+    for iteration in range(n_iterations):
+        for scenario, base_scope_3_factor in scenarios.items():
+            for year in years:
+                year_index = year - base_year
+                
+                # Production growth
+                production_year = production * (1 + growth/100)**year_index
+                
+                # Add uncertainty to emission factor
+                variation = np.random.uniform(-uncertainty/100, uncertainty/100)
+                varied_factor = base_scope_3_factor * (1 + variation)
+                
+                # Calculate emissions
+                scope_3_emissions = production_year * varied_factor * (scope_3_pct / 100)
+                scope_1_2_emissions = production_year * 0.5 * ((scope_1_pct + scope_2_pct) / 100)
+                total_emissions = scope_3_emissions + scope_1_2_emissions
+                
+                all_results[scenario][year].append(total_emissions)
+    
+    # Calculate statistics for each scenario and year
+    trajectories_with_ci = {}
     for scenario in scenarios.keys():
-        scenario_data = next(d for d in trajectories[scenario] if d['Year'] == year)
-        row[scenario] = scenario_data['Total_Emissions']
+        trajectories_with_ci[scenario] = {}
+        for year in years:
+            data = all_results[scenario][year]
+            trajectories_with_ci[scenario][year] = {
+                'mean': np.mean(data),
+                'p2_5': np.percentile(data, 2.5),
+                'p97_5': np.percentile(data, 97.5)
+            }
+    
+    return trajectories_with_ci
+
+# Calculate trajectories with confidence intervals
+with st.spinner("Calculating confidence intervals..."):
+    trajectories_ci = calculate_trajectories_with_ci(
+        scenarios, annual_production, growth_rate, 
+        (scope_1_pct, scope_2_pct, scope_3_pct), sbti_reduction_rate,
+        n_iterations, uncertainty
+    )
+
+# Calculate SBTi pathway
+sbti_data = []
+base_emissions = trajectories_ci["Conservative Selection"][2025]['mean']
+for year in years:
+    year_index = year - base_year
+    sbti_emissions = base_emissions * ((1 - sbti_reduction_rate/100)**year_index)
+    sbti_data.append({'Year': year, 'SBTi_Emissions': sbti_emissions})
+
+# Create comprehensive chart data with confidence intervals
+chart_data_mean = pd.DataFrame()
+chart_data_upper = pd.DataFrame()
+chart_data_lower = pd.DataFrame()
+
+for year in years:
+    row_mean = {'Year': year}
+    row_upper = {'Year': year}
+    row_lower = {'Year': year}
+    
+    for scenario in scenarios.keys():
+        stats = trajectories_ci[scenario][year]
+        row_mean[scenario] = stats['mean']
+        row_upper[scenario] = stats['p97_5']
+        row_lower[scenario] = stats['p2_5']
     
     # Add SBTi pathway
-    sbti_data = next(d for d in sbti_pathway if d['Year'] == year)
-    row['SBTi 4.2% Pathway'] = sbti_data['SBTi_Emissions']
-    chart_data = pd.concat([chart_data, pd.DataFrame([row])], ignore_index=True)
+    sbti_value = next(d for d in sbti_data if d['Year'] == year)['SBTi_Emissions']
+    row_mean['SBTi 4.2% Pathway'] = sbti_value
+    row_upper['SBTi 4.2% Pathway'] = sbti_value
+    row_lower['SBTi 4.2% Pathway'] = sbti_value
+    
+    chart_data_mean = pd.concat([chart_data_mean, pd.DataFrame([row_mean])], ignore_index=True)
+    chart_data_upper = pd.concat([chart_data_upper, pd.DataFrame([row_upper])], ignore_index=True)
+    chart_data_lower = pd.concat([chart_data_lower, pd.DataFrame([row_lower])], ignore_index=True)
 
-chart_data = chart_data.set_index('Year')
+chart_data_mean = chart_data_mean.set_index('Year')
+chart_data_upper = chart_data_upper.set_index('Year')
+chart_data_lower = chart_data_lower.set_index('Year')
 
-# Display main chart
-st.line_chart(chart_data)
+# Create the enhanced visualization with confidence intervals
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+fig, ax = plt.subplots(figsize=(12, 8))
+
+# Color scheme
+colors = {
+    'Conservative Selection': '#ff6b6b',  # Red
+    'Moderate Selection': '#ffa500',      # Orange  
+    'Aggressive Selection': '#4ecdc4',    # Teal
+    'SBTi 4.2% Pathway': '#45b7d1'       # Blue
+}
+
+# Plot confidence intervals as shaded areas
+for scenario in ['Conservative Selection', 'Moderate Selection', 'Aggressive Selection']:
+    ax.fill_between(
+        chart_data_mean.index,
+        chart_data_lower[scenario],
+        chart_data_upper[scenario],
+        alpha=0.2,
+        color=colors[scenario],
+        label=f'{scenario} 95% CI'
+    )
+
+# Plot mean lines
+for scenario in scenarios.keys():
+    ax.plot(
+        chart_data_mean.index,
+        chart_data_mean[scenario],
+        color=colors[scenario],
+        linewidth=3,
+        label=f'{scenario} (Mean)',
+        marker='o',
+        markersize=6
+    )
+
+# Plot SBTi pathway
+ax.plot(
+    chart_data_mean.index,
+    chart_data_mean['SBTi 4.2% Pathway'],
+    color=colors['SBTi 4.2% Pathway'],
+    linewidth=3,
+    linestyle='--',
+    label='SBTi 4.2% Pathway',
+    marker='s',
+    markersize=6
+)
+
+# Formatting
+ax.set_xlabel('Year', fontsize=12, fontweight='bold')
+ax.set_ylabel('Total Emissions (tCO₂e)', fontsize=12, fontweight='bold')
+ax.set_title('Gaming Impact: Total Company Emissions vs. SBTi Pathway\nwith 95% Confidence Intervals', 
+             fontsize=14, fontweight='bold', pad=20)
+
+# Improve legend
+ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
+
+# Grid and styling
+ax.grid(True, alpha=0.3)
+ax.set_facecolor('#f8f9fa')
+
+# Format y-axis with thousands separator
+ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x:,.0f}'))
+
+# Tight layout
+plt.tight_layout()
+
+# Display the plot
+st.pyplot(fig)
+
+# Store chart_data for metrics (use mean values)
+chart_data = chart_data_mean
 
 # Key metrics row
 col1, col2, col3, col4 = st.columns(4)
@@ -445,13 +596,13 @@ with st.expander("Methodology & Data Sources"):
     - Portfolio weighted factors: Conservative (4.112 kg CO₂e/kg) vs Aggressive (1.597 kg CO₂e/kg)
     - Monte Carlo uncertainty: ±10% factor variation (1,000 iterations)
     - SBTi compliance: 4.2% annual absolute reduction requirement
-    - Scope breakdown: Typical F&B company (5% Scope 1, 5% Scope 2, 90% Scope 3)
+    - Focus: Scope 3 purchased goods & services emissions only
     """)
 
 # Footer
 st.markdown("---")
 st.markdown("""
-**About this tool**: Demonstrates emission gaming using real data from peer-reviewed research. 
+**About this tool**: Demonstrates Scope 3 emission gaming using real data from peer-reviewed research. 
 All emission factors and scenarios reflect actual variations found across major LCA databases.
 
 *Research by Ramana Gudipudi, Luis Costa, Ponraj Arumugam, Matthew Agarwala, Jürgen P. Kropp, Felix Creutzig*
