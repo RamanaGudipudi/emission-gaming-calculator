@@ -1,10 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import random
 
 # Page configuration
 st.set_page_config(
@@ -90,6 +86,22 @@ growth_rate = st.sidebar.slider(
     step=0.5
 )
 
+# Monte Carlo settings
+st.sidebar.subheader("Simulation Settings")
+n_iterations = st.sidebar.selectbox(
+    "Monte Carlo Iterations",
+    [100, 500, 1000],
+    index=1
+)
+
+uncertainty_range = st.sidebar.slider(
+    "Uncertainty Range (±%)",
+    min_value=5.0,
+    max_value=20.0,
+    value=10.0,
+    step=1.0
+)
+
 # Create two columns for the main content
 col1, col2 = st.columns([1, 1])
 
@@ -102,19 +114,13 @@ with col1:
         list(emission_factors[selected_product].items()),
         columns=['Database', 'Emission Factor']
     )
+    df_factors = df_factors.sort_values('Emission Factor')
     
-    # Create bar chart
-    fig_factors = px.bar(
-        df_factors,
-        x='Database',
-        y='Emission Factor',
-        title=f"Emission Factor Variations: {selected_product}",
-        color='Emission Factor',
-        color_continuous_scale='RdYlGn_r'
-    )
-    fig_factors.update_xaxis(tickangle=45)
-    fig_factors.update_layout(height=400)
-    st.plotly_chart(fig_factors, use_container_width=True)
+    # Display as bar chart using Streamlit
+    st.bar_chart(df_factors.set_index('Database')['Emission Factor'])
+    
+    # Display the data table
+    st.dataframe(df_factors, use_container_width=True)
     
     # Statistics
     factors = list(emission_factors[selected_product].values())
@@ -140,100 +146,202 @@ with col2:
     }
     
     # Calculate emissions for each scenario
-    base_emissions = company_size * scenarios["Conservative Selection"]
-    
     gaming_data = []
     for scenario, factor in scenarios.items():
         annual_emissions = company_size * factor
         reduction_vs_conservative = ((scenarios["Conservative Selection"] - factor) / scenarios["Conservative Selection"]) * 100
         gaming_data.append({
             'Scenario': scenario,
-            'Emission Factor': factor,
-            'Annual Emissions (tCO₂e)': annual_emissions,
-            'Apparent Reduction (%)': max(0, reduction_vs_conservative)
+            'Emission Factor': f"{factor:.2f}",
+            'Annual Emissions (tCO₂e)': f"{annual_emissions:,.0f}",
+            'Apparent Reduction (%)': f"{max(0, reduction_vs_conservative):.1f}%"
         })
     
     df_gaming = pd.DataFrame(gaming_data)
+    st.dataframe(df_gaming, use_container_width=True)
     
-    # Create emissions comparison chart
-    fig_gaming = px.bar(
-        df_gaming,
-        x='Scenario',
-        y='Annual Emissions (tCO₂e)',
-        title="Gaming Impact on Annual Emissions",
-        color='Apparent Reduction (%)',
-        color_continuous_scale='RdYlGn',
-        text='Annual Emissions (tCO₂e)'
-    )
-    fig_gaming.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-    fig_gaming.update_layout(height=400)
-    st.plotly_chart(fig_gaming, use_container_width=True)
+    # Simple bar chart for annual emissions
+    emissions_chart_data = pd.DataFrame({
+        'Scenario': [s['Scenario'] for s in gaming_data],
+        'Emissions': [company_size * scenarios[s['Scenario']] for s in gaming_data]
+    })
+    st.bar_chart(emissions_chart_data.set_index('Scenario'))
 
 # Multi-year projection
 st.subheader("📈 5-Year Gaming Impact Simulation")
 
+# Calculate projections
 years = list(range(2025, 2031))
-production_volumes = [company_size * (1 + growth_rate/100)**i for i in range(6)]
+projection_data = []
 
-# Create scenarios over time
-fig_projection = go.Figure()
+for year in years:
+    year_index = year - 2025
+    production = company_size * (1 + growth_rate/100)**year_index
+    
+    row = {'Year': year}
+    for scenario, factor in scenarios.items():
+        emissions = production * factor
+        row[scenario] = emissions
+    projection_data.append(row)
 
-colors = ['red', 'orange', 'green']
-for i, (scenario, factor) in enumerate(scenarios.items()):
-    emissions = [vol * factor for vol in production_volumes]
-    fig_projection.add_trace(go.Scatter(
-        x=years,
-        y=emissions,
-        mode='lines+markers',
-        name=scenario,
-        line=dict(color=colors[i], width=3),
-        marker=dict(size=8)
-    ))
+df_projection = pd.DataFrame(projection_data)
+df_projection_chart = df_projection.set_index('Year')
 
-fig_projection.update_layout(
-    title=f"Gaming Impact Over Time: {selected_product} ({growth_rate}% annual growth)",
-    xaxis_title="Year",
-    yaxis_title="Total Emissions (tCO₂e)",
-    height=500,
-    hovermode='x unified'
-)
+# Display line chart
+st.line_chart(df_projection_chart)
 
-st.plotly_chart(fig_projection, use_container_width=True)
+# Display the data
+st.dataframe(df_projection, use_container_width=True)
 
-# Impact summary
-st.subheader("💡 Key Insights")
+# Monte Carlo Simulation
+st.subheader("🎲 Monte Carlo Analysis")
+
+@st.cache_data
+def run_simple_monte_carlo(product, company_size, growth_rate, n_iterations, uncertainty_range):
+    """Simple Monte Carlo simulation"""
+    
+    factors = list(emission_factors[product].values())
+    scenarios = {
+        "Conservative": max(factors),
+        "Average": np.mean(factors),
+        "Aggressive": min(factors)
+    }
+    
+    # Set seed for reproducibility
+    np.random.seed(42)
+    
+    results = {}
+    
+    for scenario, base_factor in scenarios.items():
+        scenario_results = []
+        
+        for _ in range(n_iterations):
+            # Calculate 5-year progression
+            yearly_emissions = []
+            for year_idx in range(6):  # 2025-2030
+                volume = company_size * (1 + growth_rate/100)**year_idx
+                # Add uncertainty
+                variation = np.random.uniform(-uncertainty_range/100, uncertainty_range/100)
+                varied_factor = base_factor * (1 + variation)
+                emission = volume * varied_factor
+                yearly_emissions.append(emission)
+            
+            scenario_results.append(yearly_emissions[-1])  # 2030 value
+        
+        results[scenario] = {
+            'mean': np.mean(scenario_results),
+            'std': np.std(scenario_results),
+            'min': np.min(scenario_results),
+            'max': np.max(scenario_results),
+            'p5': np.percentile(scenario_results, 5),
+            'p95': np.percentile(scenario_results, 95)
+        }
+    
+    return results
+
+with st.spinner(f"Running {n_iterations:,} Monte Carlo iterations..."):
+    mc_results = run_simple_monte_carlo(
+        selected_product, company_size, growth_rate, n_iterations, uncertainty_range
+    )
+
+# Display Monte Carlo results
+st.subheader("📊 Monte Carlo Results (2030 Emissions)")
+
+mc_summary = []
+for scenario, stats in mc_results.items():
+    mc_summary.append({
+        'Scenario': scenario,
+        'Mean (tCO₂e)': f"{stats['mean']:,.0f}",
+        'Std Dev': f"{stats['std']:,.0f}",
+        '5th Percentile': f"{stats['p5']:,.0f}",
+        '95th Percentile': f"{stats['p95']:,.0f}"
+    })
+
+df_mc = pd.DataFrame(mc_summary)
+st.dataframe(df_mc, use_container_width=True)
+
+# Gaming impact analysis
+st.subheader("💡 Key Gaming Insights")
 
 col_insight1, col_insight2, col_insight3, col_insight4 = st.columns(4)
 
+# Calculate gaming potential
+conservative_mean = mc_results["Conservative"]["mean"]
+aggressive_mean = mc_results["Aggressive"]["mean"]
+gaming_potential = ((conservative_mean - aggressive_mean) / conservative_mean) * 100
+
 with col_insight1:
-    final_gaming_potential = gaming_progression[-1]['Gaming Effect (%)']
     st.metric(
-        "Final Gaming Potential",
-        f"{final_gaming_potential:.1f}%",
-        help="Gaming potential in 2030 based on Monte Carlo simulation"
+        "Gaming Potential",
+        f"{gaming_potential:.1f}%",
+        help="Potential emission reduction through strategic factor selection"
     )
 
 with col_insight2:
-    final_absolute_impact = gaming_progression[-1]['Absolute Difference (tCO₂e)']
+    absolute_impact = conservative_mean - aggressive_mean
     st.metric(
         "2030 Gaming Impact",
-        f"{final_absolute_impact:,.0f} tCO₂e",
-        help="Absolute emission difference in 2030 between gaming scenarios"
+        f"{absolute_impact:,.0f} tCO₂e",
+        help="Absolute difference in 2030 emissions"
     )
 
 with col_insight3:
+    # Check if confidence intervals overlap
+    conservative_range = [mc_results["Conservative"]["p5"], mc_results["Conservative"]["p95"]]
+    aggressive_range = [mc_results["Aggressive"]["p5"], mc_results["Aggressive"]["p95"]]
+    
+    overlap = not (conservative_range[1] < aggressive_range[0] or aggressive_range[1] < conservative_range[0])
+    
+    if not overlap:
+        confidence = "High (No CI overlap)"
+    else:
+        confidence = "Moderate (CI overlap)"
+    
     st.metric(
         "Statistical Confidence",
-        f"{(1-p_value)*100:.1f}%",
-        help="Confidence that gaming effects are statistically significant"
+        confidence,
+        help="Confidence in gaming effect significance"
     )
 
 with col_insight4:
     st.metric(
-        "Database Variation",
-        f"{len(emission_factors[selected_product])}x",
-        help="Number of different databases providing factors for this product"
+        "Database Options",
+        f"{len(emission_factors[selected_product])}",
+        help="Number of different databases available"
     )
+
+# Year-over-year gaming effect
+st.subheader("📈 Gaming Effect Progression")
+
+gaming_progression = []
+for year in years:
+    year_index = year - 2025
+    production = company_size * (1 + growth_rate/100)**year_index
+    
+    conservative_emissions = production * scenarios["Conservative Selection"]
+    aggressive_emissions = production * scenarios["Aggressive Selection"]
+    
+    gaming_effect = ((conservative_emissions - aggressive_emissions) / conservative_emissions) * 100
+    absolute_difference = conservative_emissions - aggressive_emissions
+    
+    gaming_progression.append({
+        'Year': year,
+        'Gaming Effect (%)': gaming_effect,
+        'Absolute Difference (tCO₂e)': absolute_difference
+    })
+
+df_gaming_progression = pd.DataFrame(gaming_progression)
+
+# Show gaming effect over time
+st.markdown("**Gaming Effect Over Time (%)**")
+st.line_chart(df_gaming_progression.set_index('Year')['Gaming Effect (%)'])
+
+# Show absolute difference
+st.markdown("**Absolute Gaming Impact (tCO₂e)**")
+st.line_chart(df_gaming_progression.set_index('Year')['Absolute Difference (tCO₂e)'])
+
+# Display progression table
+st.dataframe(df_gaming_progression, use_container_width=True)
 
 # Call to action
 st.markdown("---")
@@ -264,23 +372,39 @@ with col_cta2:
     - Unfair competitive advantages through gaming
     """)
 
+# Detailed explanation
+st.markdown("---")
+st.subheader("🔍 How Emission Gaming Works")
+
+st.markdown("""
+**The Gaming Process:**
+
+1. **Multiple Databases Available**: Companies can choose from dozens of LCA databases (Agribalyse, Ecoinvent, USDA LCA, etc.)
+
+2. **Factor Selection**: For any given product, emission factors can vary by 50-300% between databases
+
+3. **Strategic Selection**: Companies can legally select factors that minimize their reported emissions
+
+4. **Compound Effect**: Over time, with business growth, gaming effects compound significantly
+
+5. **Credibility Crisis**: This creates unfair competitive advantages and undermines climate action credibility
+
+**Example:** A food company producing 50,000 tonnes annually could report anywhere from {:.0f} to {:.0f} tCO₂e 
+just by selecting different emission factors for {}—a {:.1f}% difference!
+""".format(
+    company_size * min(factors),
+    company_size * max(factors),
+    selected_product.lower(),
+    ((max(factors) - min(factors)) / min(factors)) * 100
+))
+
 # Footer
 st.markdown("---")
 st.markdown("""
 **About this tool:** This calculator demonstrates emission gaming using real emission factors from scientific literature. 
-The scenarios reflect actual variations found across major LCA databases (Agribalyse, Ecoinvent, USDA LCA, etc.).
+The scenarios reflect actual variations found across major LCA databases.
 
 *Based on research by Ramana Gudipudi et al. - Institute for Sustainable Transition, European School of Management and Technology*
-""")
 
-# Add some styling
-st.markdown("""
-<style>
-.metric-container {
-    background-color: #f0f2f6;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 0.5rem 0;
-}
-</style>
-""", unsafe_allow_html=True)
+**Data sources:** Agribalyse, Ecoinvent, USDA LCA, various peer-reviewed studies
+""")
