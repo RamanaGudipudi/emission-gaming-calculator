@@ -41,4 +41,4 @@ Emission factors sourced from:
 
 ## Contact
 
-For questions about the research methodology, contact: [your-email]
+For questions about the research methodology, contact: [ramana.gudipudi@gmail.com]
