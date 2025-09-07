@@ -307,15 +307,15 @@ with col1:
     )
 
 with col2:
-    # Calculate if aggressive gaming meets SBTi
+    # Calculate apparent reduction from common baseline
+    baseline_emissions = chart_data.loc[2025, 'Conservative Selection']  # Same baseline for all
     aggressive_2030 = chart_data.loc[2030, 'Aggressive Selection']
-    conservative_2025 = chart_data.loc[2025, 'Conservative Selection']
-    apparent_reduction = ((conservative_2025 - aggressive_2030) / conservative_2025) * 100
+    apparent_reduction = ((baseline_emissions - aggressive_2030) / baseline_emissions) * 100
     
     st.metric(
-        "Apparent Reduction (2030)",
+        "Gaming Reduction (2030)",
         f"{apparent_reduction:.1f}%",
-        help="Apparent emission reduction from 2025 baseline through gaming"
+        help="Apparent emission reduction from common 2025 baseline through gaming"
     )
 
 with col3:
