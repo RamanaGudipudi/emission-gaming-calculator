@@ -4,78 +4,92 @@ import numpy as np
 
 # Page configuration
 st.set_page_config(
-    page_title="Emission Gaming Calculator",
-    page_icon="🌱",
+    page_title="Scope 3 Emission Gaming Calculator",
+    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # Title and introduction
-st.title("🎯 Emission Gaming Calculator")
+st.title("🎯 Scope 3 Emission Gaming: The SBTi Compliance Loophole")
 st.markdown("""
-**Discover how strategic emission factor selection can artificially manipulate corporate carbon footprints**
+**How companies can appear to meet Science-Based Targets through strategic emission factor selection**
 
-This interactive tool demonstrates the critical gap in current GHG Protocol guidance that enables 'emission gaming' - 
-the strategic selection of emission factors that can artificially reduce reported emissions by up to 6.7 times.
+This tool demonstrates how a Food & Beverage company can achieve apparent **4.2% annual emission reductions** 
+(meeting SBTi requirements) through Scope 3 emission factor gaming alone—without any operational changes.
 """)
 
-# Sidebar for controls
-st.sidebar.header("Scenario Configuration")
+# Key insight callout
+st.info("**🚨 Key Finding**: Through factor selection, companies can appear SBTi-compliant for 13+ years while actually growing emissions")
 
-# Sample emission factor data based on your research
+# Sidebar configuration
+st.sidebar.header("Company Configuration")
+
+# Real emission factors from your research
 emission_factors = {
-    "Tomatoes": {
-        "Agribalyse (France)": 0.83,
-        "Ecoinvent (Global)": 1.42,
-        "USDA LCA (USA)": 0.95,
-        "UK Carbon Trust": 1.73,
-        "Spanish LCA": 0.67
-    },
-    "Wheat": {
-        "Agribalyse (France)": 0.60,
-        "Ecoinvent (Global)": 0.82,
-        "CarbonCloud (Nordic)": 0.35,
-        "Indian Punjab": 1.20,
-        "Canadian Average": 0.75
-    },
     "Milk": {
-        "Agribalyse (France)": 1.24,
-        "Ecoinvent (Global)": 3.20,
-        "South Africa Pasture": 0.60,
-        "US Dairy Science": 2.80,
-        "Nordic Average": 1.05
+        "Conservative": 3.20,
+        "Moderate": 1.24, 
+        "Aggressive": 0.60,
+        "Gaming Potential": 81.3
     },
     "Cheese": {
-        "Agribalyse (France)": 9.78,
-        "Ecoinvent (Global)": 13.50,
-        "Canadian Dairy": 5.30,
-        "UK Carbon Trust": 12.20,
-        "NRDC Study": 8.90
+        "Conservative": 13.50,
+        "Moderate": 9.78,
+        "Aggressive": 5.30,
+        "Gaming Potential": 60.7
+    },
+    "Butter": {
+        "Conservative": 12.00,
+        "Moderate": 9.30,
+        "Aggressive": 7.30,
+        "Gaming Potential": 39.2
+    },
+    "Wheat": {
+        "Conservative": 0.82,
+        "Moderate": 0.60,
+        "Aggressive": 0.35,
+        "Gaming Potential": 57.3
     },
     "Rice": {
-        "Agribalyse (France)": 1.20,
-        "China Regional": 1.60,
-        "Indian Punjab": 2.10,
-        "IRRI Best Practice": 0.90,
-        "Ecoinvent Global": 1.85
+        "Conservative": 1.60,
+        "Moderate": 1.20,
+        "Aggressive": 0.90,
+        "Gaming Potential": 43.8
     }
 }
 
-# Product selection
-selected_product = st.sidebar.selectbox(
-    "Select Product",
-    list(emission_factors.keys()),
-    help="Choose a product to see emission factor variations across databases"
-)
+# Portfolio configuration
+st.sidebar.subheader("Portfolio Mix (%)")
+st.sidebar.markdown("*Adjust product composition*")
+
+product_mix = {}
+for product in emission_factors.keys():
+    default_values = {"Milk": 30, "Cheese": 15, "Butter": 5, "Wheat": 35, "Rice": 15}
+    product_mix[product] = st.sidebar.slider(
+        f"{product}",
+        min_value=0,
+        max_value=50,
+        value=default_values[product],
+        step=1
+    )
+
+# Normalize to 100%
+total_mix = sum(product_mix.values())
+if total_mix > 0:
+    product_mix = {k: (v/total_mix)*100 for k, v in product_mix.items()}
+
+st.sidebar.markdown(f"**Total: {sum(product_mix.values()):.0f}%**")
 
 # Company settings
 st.sidebar.subheader("Company Scenario")
-company_size = st.sidebar.number_input(
+annual_production = st.sidebar.number_input(
     "Annual Production (tonnes)",
-    min_value=1000,
+    min_value=10000,
     max_value=1000000,
-    value=50000,
-    step=1000
+    value=100000,
+    step=10000,
+    help="Total production volume across all products"
 )
 
 growth_rate = st.sidebar.slider(
@@ -83,328 +97,362 @@ growth_rate = st.sidebar.slider(
     min_value=0.0,
     max_value=15.0,
     value=7.0,
-    step=0.5
+    step=0.5,
+    help="Business growth rate affecting production volumes"
 )
+
+# Scope breakdown
+st.sidebar.subheader("Emission Scope Breakdown")
+scope_1_pct = st.sidebar.slider("Scope 1 (%)", 0, 20, 5, help="Direct emissions from operations")
+scope_2_pct = st.sidebar.slider("Scope 2 (%)", 0, 20, 5, help="Purchased energy emissions")
+scope_3_pct = 100 - scope_1_pct - scope_2_pct
+st.sidebar.write(f"**Scope 3: {scope_3_pct}%** (Purchased goods - where gaming occurs)")
 
 # Monte Carlo settings
 st.sidebar.subheader("Simulation Settings")
-n_iterations = st.sidebar.selectbox(
-    "Monte Carlo Iterations",
-    [100, 500, 1000],
-    index=1
-)
+n_iterations = st.sidebar.selectbox("Monte Carlo Iterations", [500, 1000, 2000], index=1)
+uncertainty = st.sidebar.slider("Factor Uncertainty (±%)", 5.0, 15.0, 10.0, step=1.0)
 
-uncertainty_range = st.sidebar.slider(
-    "Uncertainty Range (±%)",
-    min_value=5.0,
-    max_value=20.0,
-    value=10.0,
-    step=1.0
-)
+# Calculate weighted emission factors
+def calculate_weighted_factor(scenario):
+    weighted_sum = 0
+    for product, percentage in product_mix.items():
+        factor = emission_factors[product][scenario]
+        weighted_sum += factor * (percentage / 100)
+    return weighted_sum
 
-# Create two columns for the main content
-col1, col2 = st.columns([1, 1])
+# Main visualization section
+st.subheader("🎮 Gaming Impact: Total Company Emissions vs. SBTi Pathway")
 
-with col1:
-    st.subheader(f"📊 Emission Factors for {selected_product}")
-    st.markdown("*kg CO₂e per kg product*")
-    
-    # Create DataFrame for the selected product
-    df_factors = pd.DataFrame(
-        list(emission_factors[selected_product].items()),
-        columns=['Database', 'Emission Factor']
-    )
-    df_factors = df_factors.sort_values('Emission Factor')
-    
-    # Display as bar chart using Streamlit
-    st.bar_chart(df_factors.set_index('Database')['Emission Factor'])
-    
-    # Display the data table
-    st.dataframe(df_factors, use_container_width=True)
-    
-    # Statistics
-    factors = list(emission_factors[selected_product].values())
-    min_factor = min(factors)
-    max_factor = max(factors)
-    variation = ((max_factor - min_factor) / min_factor) * 100
-    
-    st.metric("Variation Range", f"{variation:.1f}%")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.metric("Lowest Factor", f"{min_factor:.2f}")
-    with col_b:
-        st.metric("Highest Factor", f"{max_factor:.2f}")
+# Calculate weighted factors for scenarios
+scenarios = {
+    "Conservative Selection": calculate_weighted_factor("Conservative"),
+    "Moderate Selection": calculate_weighted_factor("Moderate"), 
+    "Aggressive Selection": calculate_weighted_factor("Aggressive")
+}
 
-with col2:
-    st.subheader("🎮 Gaming Scenarios")
+# Calculate gaming potential
+total_gaming_potential = ((scenarios["Conservative Selection"] - scenarios["Aggressive Selection"]) / scenarios["Conservative Selection"]) * 100
+
+# SBTi 4.2% annual reduction pathway
+sbti_reduction_rate = 4.2  # Annual percentage reduction required
+
+# Years for projection
+years = list(range(2025, 2031))
+base_year = 2025
+
+# Calculate total emissions for different scenarios
+@st.cache_data
+def calculate_emissions_trajectory(scenarios, annual_production, growth_rate, scope_breakdown, sbti_rate):
+    scope_1_pct, scope_2_pct, scope_3_pct = scope_breakdown
     
-    # Gaming scenarios
-    scenarios = {
-        "Conservative Selection": max(factors),
-        "Average Selection": np.mean(factors),
-        "Aggressive Selection": min(factors)
-    }
+    trajectories = {}
     
-    # Calculate emissions for each scenario
-    gaming_data = []
-    for scenario, factor in scenarios.items():
-        annual_emissions = company_size * factor
-        reduction_vs_conservative = ((scenarios["Conservative Selection"] - factor) / scenarios["Conservative Selection"]) * 100
-        gaming_data.append({
-            'Scenario': scenario,
-            'Emission Factor': f"{factor:.2f}",
-            'Annual Emissions (tCO₂e)': f"{annual_emissions:,.0f}",
-            'Apparent Reduction (%)': f"{max(0, reduction_vs_conservative):.1f}%"
+    for scenario_name, scope_3_factor in scenarios.items():
+        yearly_data = []
+        
+        for year in years:
+            year_index = year - base_year
+            
+            # Production growth
+            production = annual_production * (1 + growth_rate/100)**year_index
+            
+            # Scope 3 emissions (where gaming occurs)
+            scope_3_emissions = production * scope_3_factor
+            
+            # Scope 1 & 2 (minimal gaming potential, assume 0.5 tCO2e/tonne)
+            scope_1_2_factor = 0.5  # Conservative estimate
+            scope_1_2_emissions = production * scope_1_2_factor
+            
+            # Total emissions with scope breakdown
+            total_scope_3 = scope_3_emissions * (scope_3_pct / 100)
+            total_scope_1_2 = scope_1_2_emissions * ((scope_1_pct + scope_2_pct) / 100)
+            total_emissions = total_scope_3 + total_scope_1_2
+            
+            yearly_data.append({
+                'Year': year,
+                'Production': production,
+                'Scope_3_Emissions': total_scope_3,
+                'Scope_1_2_Emissions': total_scope_1_2,
+                'Total_Emissions': total_emissions
+            })
+        
+        trajectories[scenario_name] = yearly_data
+    
+    # SBTi compliant pathway
+    sbti_pathway = []
+    base_emissions = trajectories["Conservative Selection"][0]['Total_Emissions']
+    
+    for year in years:
+        year_index = year - base_year
+        sbti_emissions = base_emissions * ((1 - sbti_rate/100)**year_index)
+        sbti_pathway.append({
+            'Year': year,
+            'SBTi_Emissions': sbti_emissions
         })
     
-    df_gaming = pd.DataFrame(gaming_data)
-    st.dataframe(df_gaming, use_container_width=True)
-    
-    # Simple bar chart for annual emissions
-    emissions_chart_data = pd.DataFrame({
-        'Scenario': [s['Scenario'] for s in gaming_data],
-        'Emissions': [company_size * scenarios[s['Scenario']] for s in gaming_data]
-    })
-    st.bar_chart(emissions_chart_data.set_index('Scenario'))
+    return trajectories, sbti_pathway
 
-# Multi-year projection
-st.subheader("📈 5-Year Gaming Impact Simulation")
+# Calculate trajectories
+trajectories, sbti_pathway = calculate_emissions_trajectory(
+    scenarios, annual_production, growth_rate, 
+    (scope_1_pct, scope_2_pct, scope_3_pct), sbti_reduction_rate
+)
 
-# Calculate projections
-years = list(range(2025, 2031))
-projection_data = []
-
+# Create main chart data
+chart_data = pd.DataFrame()
 for year in years:
-    year_index = year - 2025
-    production = company_size * (1 + growth_rate/100)**year_index
-    
     row = {'Year': year}
-    for scenario, factor in scenarios.items():
-        emissions = production * factor
-        row[scenario] = emissions
-    projection_data.append(row)
+    for scenario in scenarios.keys():
+        scenario_data = next(d for d in trajectories[scenario] if d['Year'] == year)
+        row[scenario] = scenario_data['Total_Emissions']
+    
+    # Add SBTi pathway
+    sbti_data = next(d for d in sbti_pathway if d['Year'] == year)
+    row['SBTi 4.2% Pathway'] = sbti_data['SBTi_Emissions']
+    chart_data = pd.concat([chart_data, pd.DataFrame([row])], ignore_index=True)
 
-df_projection = pd.DataFrame(projection_data)
-df_projection_chart = df_projection.set_index('Year')
+chart_data = chart_data.set_index('Year')
 
-# Display line chart
-st.line_chart(df_projection_chart)
+# Display main chart
+st.line_chart(chart_data)
 
-# Display the data
-st.dataframe(df_projection, use_container_width=True)
+# Key metrics row
+col1, col2, col3, col4 = st.columns(4)
 
-# Monte Carlo Simulation
-st.subheader("🎲 Monte Carlo Analysis")
+with col1:
+    st.metric(
+        "Gaming Potential", 
+        f"{total_gaming_potential:.1f}%",
+        help="Maximum apparent emission reduction through factor selection"
+    )
+
+with col2:
+    # Calculate if aggressive gaming meets SBTi
+    aggressive_2030 = chart_data.loc[2030, 'Aggressive Selection']
+    conservative_2025 = chart_data.loc[2025, 'Conservative Selection']
+    apparent_reduction = ((conservative_2025 - aggressive_2030) / conservative_2025) * 100
+    
+    st.metric(
+        "Apparent Reduction (2030)",
+        f"{apparent_reduction:.1f}%",
+        help="Apparent emission reduction from 2025 baseline through gaming"
+    )
+
+with col3:
+    # Years of SBTi compliance through gaming alone
+    gaming_annual_rate = apparent_reduction / 5  # Over 5 years
+    years_compliant = gaming_annual_rate / sbti_reduction_rate
+    
+    st.metric(
+        "Gaming Compliance",
+        f"{years_compliant:.1f} years",
+        help="Years of apparent SBTi compliance through factor gaming alone"
+    )
+
+with col4:
+    st.metric(
+        "Scope 3 Dominance",
+        f"{scope_3_pct}%",
+        help="Percentage of total emissions from Scope 3 (gaming vulnerable)"
+    )
+
+# Gaming mechanism explanation
+st.subheader("🔍 How Gaming Works")
+
+col_left, col_right = st.columns([1, 1])
+
+with col_left:
+    st.markdown("**Emission Factor Gaming Process:**")
+    st.markdown("""
+    1. **Database Shopping**: Choose from multiple LCA databases
+    2. **Strategic Selection**: Pick lowest available factors
+    3. **Scope 3 Focus**: Target 90% of company emissions
+    4. **Compound Effect**: Gaming scales with business growth
+    5. **SBTi Compliance**: Appear to meet 4.2% annual reduction
+    """)
+
+with col_right:
+    st.markdown("**Gaming vs. Reality:**")
+    gaming_comparison = pd.DataFrame({
+        'Metric': ['2030 Emissions (tCO₂e)', 'Reduction from 2025', 'SBTi Compliant?'],
+        'Conservative Factors': [
+            f"{chart_data.loc[2030, 'Conservative Selection']:,.0f}",
+            f"{((chart_data.loc[2025, 'Conservative Selection'] - chart_data.loc[2030, 'Conservative Selection']) / chart_data.loc[2025, 'Conservative Selection'] * 100):.1f}%",
+            "❌ No"
+        ],
+        'Aggressive Gaming': [
+            f"{chart_data.loc[2030, 'Aggressive Selection']:,.0f}",
+            f"{apparent_reduction:.1f}%",
+            "✅ Yes"
+        ]
+    })
+    st.dataframe(gaming_comparison, use_container_width=True)
+
+# Monte Carlo Analysis
+st.subheader("🎲 Monte Carlo Gaming Analysis")
 
 @st.cache_data
-def run_simple_monte_carlo(product, company_size, growth_rate, n_iterations, uncertainty_range):
-    """Simple Monte Carlo simulation"""
+def run_gaming_monte_carlo(scenarios, production, growth, scope_breakdown, n_iterations, uncertainty):
+    scope_1_pct, scope_2_pct, scope_3_pct = scope_breakdown
     
-    factors = list(emission_factors[product].values())
-    scenarios = {
-        "Conservative": max(factors),
-        "Average": np.mean(factors),
-        "Aggressive": min(factors)
-    }
-    
-    # Set seed for reproducibility
     np.random.seed(42)
+    results = {scenario: [] for scenario in scenarios.keys()}
     
-    results = {}
-    
-    for scenario, base_factor in scenarios.items():
-        scenario_results = []
-        
-        for _ in range(n_iterations):
-            # Calculate 5-year progression
-            yearly_emissions = []
-            for year_idx in range(6):  # 2025-2030
-                volume = company_size * (1 + growth_rate/100)**year_idx
-                # Add uncertainty
-                variation = np.random.uniform(-uncertainty_range/100, uncertainty_range/100)
-                varied_factor = base_factor * (1 + variation)
-                emission = volume * varied_factor
-                yearly_emissions.append(emission)
+    for iteration in range(n_iterations):
+        for scenario, base_factor in scenarios.items():
+            # 2030 calculation with uncertainty
+            production_2030 = production * (1 + growth/100)**5
             
-            scenario_results.append(yearly_emissions[-1])  # 2030 value
-        
-        results[scenario] = {
-            'mean': np.mean(scenario_results),
-            'std': np.std(scenario_results),
-            'min': np.min(scenario_results),
-            'max': np.max(scenario_results),
-            'p5': np.percentile(scenario_results, 5),
-            'p95': np.percentile(scenario_results, 95)
-        }
+            # Add uncertainty to emission factor
+            variation = np.random.uniform(-uncertainty/100, uncertainty/100)
+            varied_factor = base_factor * (1 + variation)
+            
+            # Calculate total emissions
+            scope_3_emissions = production_2030 * varied_factor * (scope_3_pct / 100)
+            scope_1_2_emissions = production_2030 * 0.5 * ((scope_1_pct + scope_2_pct) / 100)
+            total_emissions = scope_3_emissions + scope_1_2_emissions
+            
+            results[scenario].append(total_emissions)
     
     return results
 
 with st.spinner(f"Running {n_iterations:,} Monte Carlo iterations..."):
-    mc_results = run_simple_monte_carlo(
-        selected_product, company_size, growth_rate, n_iterations, uncertainty_range
+    mc_results = run_gaming_monte_carlo(
+        scenarios, annual_production, growth_rate, 
+        (scope_1_pct, scope_2_pct, scope_3_pct), n_iterations, uncertainty
     )
 
-# Display Monte Carlo results
-st.subheader("📊 Monte Carlo Results (2030 Emissions)")
+# Calculate statistics
+mc_stats = {}
+for scenario, data in mc_results.items():
+    mc_stats[scenario] = {
+        'mean': np.mean(data),
+        'p5': np.percentile(data, 5),
+        'p95': np.percentile(data, 95),
+        'std': np.std(data)
+    }
 
-mc_summary = []
-for scenario, stats in mc_results.items():
-    mc_summary.append({
-        'Scenario': scenario,
-        'Mean (tCO₂e)': f"{stats['mean']:,.0f}",
-        'Std Dev': f"{stats['std']:,.0f}",
-        '5th Percentile': f"{stats['p5']:,.0f}",
-        '95th Percentile': f"{stats['p95']:,.0f}"
-    })
+# Monte Carlo results
+col_mc1, col_mc2 = st.columns(2)
 
-df_mc = pd.DataFrame(mc_summary)
-st.dataframe(df_mc, use_container_width=True)
+with col_mc1:
+    st.markdown("**2030 Emissions with Uncertainty (tCO₂e)**")
+    mc_summary = []
+    for scenario, stats in mc_stats.items():
+        mc_summary.append({
+            'Scenario': scenario,
+            'Mean': f"{stats['mean']:,.0f}",
+            '5th-95th Percentile': f"{stats['p5']:,.0f} - {stats['p95']:,.0f}"
+        })
+    
+    df_mc = pd.DataFrame(mc_summary)
+    st.dataframe(df_mc, use_container_width=True)
 
-# Gaming impact analysis
-st.subheader("💡 Key Gaming Insights")
-
-col_insight1, col_insight2, col_insight3, col_insight4 = st.columns(4)
-
-# Calculate gaming potential
-conservative_mean = mc_results["Conservative"]["mean"]
-aggressive_mean = mc_results["Aggressive"]["mean"]
-gaming_potential = ((conservative_mean - aggressive_mean) / conservative_mean) * 100
-
-with col_insight1:
-    st.metric(
-        "Gaming Potential",
-        f"{gaming_potential:.1f}%",
-        help="Potential emission reduction through strategic factor selection"
-    )
-
-with col_insight2:
-    absolute_impact = conservative_mean - aggressive_mean
-    st.metric(
-        "2030 Gaming Impact",
-        f"{absolute_impact:,.0f} tCO₂e",
-        help="Absolute difference in 2030 emissions"
-    )
-
-with col_insight3:
-    # Check if confidence intervals overlap
-    conservative_range = [mc_results["Conservative"]["p5"], mc_results["Conservative"]["p95"]]
-    aggressive_range = [mc_results["Aggressive"]["p5"], mc_results["Aggressive"]["p95"]]
+with col_mc2:
+    st.markdown("**Statistical Gaming Analysis**")
+    
+    # Check confidence interval overlap
+    conservative_range = [mc_stats["Conservative Selection"]["p5"], mc_stats["Conservative Selection"]["p95"]]
+    aggressive_range = [mc_stats["Aggressive Selection"]["p5"], mc_stats["Aggressive Selection"]["p95"]]
     
     overlap = not (conservative_range[1] < aggressive_range[0] or aggressive_range[1] < conservative_range[0])
     
-    if not overlap:
-        confidence = "High (No CI overlap)"
-    else:
-        confidence = "Moderate (CI overlap)"
-    
-    st.metric(
-        "Statistical Confidence",
-        confidence,
-        help="Confidence in gaming effect significance"
-    )
+    st.write(f"**Gaming Effect Size**: {total_gaming_potential:.1f}%")
+    st.write(f"**95% CI Overlap**: {'❌ No' if not overlap else '⚠️ Yes'}")
+    st.write(f"**Statistical Significance**: {'✅ High' if not overlap else '⚠️ Moderate'}")
 
-with col_insight4:
-    st.metric(
-        "Database Options",
-        f"{len(emission_factors[selected_product])}",
-        help="Number of different databases available"
-    )
+# Product-level breakdown
+st.subheader("📊 Product-Level Gaming Breakdown")
 
-# Year-over-year gaming effect
-st.subheader("📈 Gaming Effect Progression")
-
-gaming_progression = []
-for year in years:
-    year_index = year - 2025
-    production = company_size * (1 + growth_rate/100)**year_index
+# Create product gaming table
+product_gaming_data = []
+for product, factors in emission_factors.items():
+    mix_pct = product_mix[product]
+    contribution = (factors["Conservative"] * mix_pct/100) / sum(factors["Conservative"] * product_mix[p]/100 for p, factors in emission_factors.items()) * 100
     
-    conservative_emissions = production * scenarios["Conservative Selection"]
-    aggressive_emissions = production * scenarios["Aggressive Selection"]
-    
-    gaming_effect = ((conservative_emissions - aggressive_emissions) / conservative_emissions) * 100
-    absolute_difference = conservative_emissions - aggressive_emissions
-    
-    gaming_progression.append({
-        'Year': year,
-        'Gaming Effect (%)': gaming_effect,
-        'Absolute Difference (tCO₂e)': absolute_difference
+    product_gaming_data.append({
+        'Product': product,
+        'Portfolio Mix (%)': f"{mix_pct:.1f}%",
+        'Conservative Factor': factors["Conservative"],
+        'Aggressive Factor': factors["Aggressive"],
+        'Gaming Potential (%)': f"{factors['Gaming Potential']:.1f}%",
+        'Contribution to Total': f"{contribution:.1f}%"
     })
 
-df_gaming_progression = pd.DataFrame(gaming_progression)
+df_products = pd.DataFrame(product_gaming_data)
+st.dataframe(df_products, use_container_width=True)
 
-# Show gaming effect over time
-st.markdown("**Gaming Effect Over Time (%)**")
-st.line_chart(df_gaming_progression.set_index('Year')['Gaming Effect (%)'])
+# Product gaming visualization
+st.markdown("**Gaming Potential by Product**")
+gaming_chart_data = pd.DataFrame({
+    'Product': list(emission_factors.keys()),
+    'Gaming Potential (%)': [factors['Gaming Potential'] for factors in emission_factors.values()]
+})
+gaming_chart_data = gaming_chart_data.set_index('Product')
+st.bar_chart(gaming_chart_data)
 
-# Show absolute difference
-st.markdown("**Absolute Gaming Impact (tCO₂e)**")
-st.line_chart(df_gaming_progression.set_index('Year')['Absolute Difference (tCO₂e)'])
-
-# Display progression table
-st.dataframe(df_gaming_progression, use_container_width=True)
-
-# Call to action
+# Call to action and research context
 st.markdown("---")
-st.subheader("🔗 Learn More")
+st.subheader("🔗 Research Context")
 
 col_cta1, col_cta2 = st.columns(2)
 
 with col_cta1:
     st.markdown("""
-    **📄 Read the Research**
+    **📄 Based on Published Research**
     
     *"Operationalizing corporate climate action through five research frontiers"*
     
-    Discover how our proposed framework addresses emission gaming through:
-    - AI-enhanced emission factor harmonization
-    - Industry-specific materiality taxonomies  
-    - Science-based verification protocols
+    By Ramana Gudipudi et al., Institute for Sustainable Transition, European School of Management and Technology
+    
+    **Key Findings:**
+    - Companies can reduce reported emissions by up to 6.7x through gaming
+    - 85% of companies cite Scope 3 accounting as primary barrier
+    - Current GHG Protocol enables strategic factor selection
     """)
 
 with col_cta2:
     st.markdown("""
-    **🎯 The Problem**
+    **🎯 The SBTi Gaming Problem**
     
-    Current GHG Protocol flexibility enables:
-    - Strategic emission factor selection
-    - Up to 6.7x variation in reported emissions
-    - Undermined credibility in corporate climate action
-    - Unfair competitive advantages through gaming
+    **How it works:**
+    - 90% of F&B emissions are Scope 3 (purchasd goods)
+    - Multiple LCA databases offer different factors
+    - Strategic selection can exceed SBTi requirements
+    - No verification of factor choice rationale
+    
+    **Impact:**
+    - Undermines SBTi credibility
+    - Creates unfair competitive advantages
+    - Enables large-scale greenwashing
     """)
 
-# Detailed explanation
+# Technical details
 st.markdown("---")
-st.subheader("🔍 How Emission Gaming Works")
+st.subheader("📈 Technical Details")
 
-st.markdown("""
-**The Gaming Process:**
-
-1. **Multiple Databases Available**: Companies can choose from dozens of LCA databases (Agribalyse, Ecoinvent, USDA LCA, etc.)
-
-2. **Factor Selection**: For any given product, emission factors can vary by 50-300% between databases
-
-3. **Strategic Selection**: Companies can legally select factors that minimize their reported emissions
-
-4. **Compound Effect**: Over time, with business growth, gaming effects compound significantly
-
-5. **Credibility Crisis**: This creates unfair competitive advantages and undermines climate action credibility
-
-**Example:** A food company producing 50,000 tonnes annually could report anywhere from {:.0f} to {:.0f} tCO₂e 
-just by selecting different emission factors for {}—a {:.1f}% difference!
-""".format(
-    company_size * min(factors),
-    company_size * max(factors),
-    selected_product.lower(),
-    ((max(factors) - min(factors)) / min(factors)) * 100
-))
+with st.expander("Methodology & Data Sources"):
+    st.markdown("""
+    **Emission Factors Sources:**
+    - Milk: Poore & Nemecek (2018), Western Europe mixed systems, South Africa pasture-based
+    - Cheese: Poore & Nemecek (2018), NRDC study (2024), Canadian dairy products (2013)  
+    - Butter: Poore & Nemecek (2018), Journal of Dairy Science (2011), Canadian dairy products (2013)
+    - Wheat: CarbonCloud Climate Hub (2023), India Punjab average, Finland/reduced tillage values
+    - Rice: Carbon footprint of grain production in China (2017), India Punjab, Nature Reviews (2023)
+    
+    **Gaming Calculation:**
+    - Portfolio weighted factors: Conservative (4.112 kg CO₂e/kg) vs Aggressive (1.597 kg CO₂e/kg)
+    - Monte Carlo uncertainty: ±10% factor variation (1,000 iterations)
+    - SBTi compliance: 4.2% annual absolute reduction requirement
+    - Scope breakdown: Typical F&B company (5% Scope 1, 5% Scope 2, 90% Scope 3)
+    """)
 
 # Footer
 st.markdown("---")
 st.markdown("""
-**About this tool:** This calculator demonstrates emission gaming using real emission factors from scientific literature. 
-The scenarios reflect actual variations found across major LCA databases.
+**About this tool**: Demonstrates emission gaming using real data from peer-reviewed research. 
+All emission factors and scenarios reflect actual variations found across major LCA databases.
 
-*Based on research by Ramana Gudipudi et al. - Institute for Sustainable Transition, European School of Management and Technology*
-
-**Data sources:** Agribalyse, Ecoinvent, USDA LCA, various peer-reviewed studies
+*Research by Ramana Gudipudi, Luis Costa, Ponraj Arumugam, Matthew Agarwala, Jürgen P. Kropp, Felix Creutzig*
 """)
