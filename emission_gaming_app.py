@@ -522,9 +522,31 @@ aggressive_mean = np.mean(aggressive_2030_distribution)
 pooled_std = np.sqrt((np.var(honest_2030_distribution) + np.var(aggressive_2030_distribution)) / 2)
 cohens_d = abs(honest_mean - aggressive_mean) / pooled_std
 
-# Statistical significance test
-from scipy import stats
-t_stat, p_value = stats.ttest_ind(honest_2030_distribution, aggressive_2030_distribution)
+# Statistical significance test (manual implementation)
+def simple_ttest(sample1, sample2):
+    """Simple t-test implementation without scipy dependency"""
+    n1, n2 = len(sample1), len(sample2)
+    mean1, mean2 = np.mean(sample1), np.mean(sample2)
+    var1, var2 = np.var(sample1, ddof=1), np.var(sample2, ddof=1)
+    
+    # Pooled standard error
+    pooled_se = np.sqrt(var1/n1 + var2/n2)
+    
+    # T-statistic
+    t_stat = (mean1 - mean2) / pooled_se
+    
+    # For large samples (n > 30), approximate p-value
+    # This is a simplified approximation
+    if abs(t_stat) > 3.0:
+        p_value = 0.001  # Very significant
+    elif abs(t_stat) > 2.0:
+        p_value = 0.05   # Significant
+    else:
+        p_value = 0.1    # Not significant
+    
+    return t_stat, p_value
+
+t_stat, p_value = simple_ttest(honest_2030_distribution, aggressive_2030_distribution)
 
 col_stat1, col_stat2 = st.columns(2)
 
