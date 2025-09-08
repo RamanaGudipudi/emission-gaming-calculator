@@ -1,22 +1,4 @@
-with st.expander("🔬 Monte Carlo Simulation Details"):
-    st.markdown(f"""
-    **Simulation Framework:**
-    - **Iterations**: {n_iterations:,} independent simulations
-    - **Uncertainty Model**: Normal distribution with ±{uncertainty}% standard deviation on emission factors
-    - **Timeline Modeling**: Baseline convergence (2025) → Gaming divergence ({gaming_start_year}+)
-    - **Business Growth**: {growth_rate}% annual growth applied consistently across all simulations
-    
-    **Statistical Outputs:**
-    - **Cohen's d Effect Size**: {cohens_d:.3f} ({"Large" if cohens_d > 0.8 else "Medium" if cohens_d > 0.5 else "Small"} effect)
-    - **Distribution Separation**: {(1-actual_overlap)*100:.1f}% non-overlapping samples
-    - **Gaming Magnitude**: Mean difference of {((honest_mean - aggressive_mean) / honest_mean * 100):.1f}%
-    - **Confidence**: {((1-p_value) * 100):.1f}% confidence that difference is not due to chance
-    
-    **Interpretation:**
-    - Values > 0.8 Cohen's d indicate large, easily detectable gaming effects
-    - Distribution overlap < 5% suggests gaming would trigger statistical audit flags
-    - Monte Carlo accounts for real-world uncertainty in emission factor measurements
-    """)import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
@@ -500,7 +482,18 @@ timeline_chart = alt.Chart(timeline_df).mark_circle(size=100).encode(
 st.altair_chart(timeline_chart, use_container_width=True)
 
 # Monte Carlo Analysis with gaming focus
-st.subheader("🎲 Statistical Gaming Analysis")
+st.subheader("🎲 Monte Carlo Statistical Gaming Analysis")
+
+# Add transparency box about Monte Carlo
+st.info(f"""
+**🔬 Monte Carlo Methodology**: All statistics below are derived from **{n_iterations:,} simulations** where each iteration:
+- Applies ±{uncertainty}% random uncertainty to emission factors
+- Models baseline convergence (2025) and gaming divergence (2030+)
+- Generates probability distributions for honest vs. gaming strategies
+- Enables statistical significance testing of gaming effects
+""")
+
+st.markdown("**What Monte Carlo Reveals**: The power of statistical analysis to detect and quantify emission factor gaming")
 
 @st.cache_data
 def run_gaming_monte_carlo(gaming_strategies, baseline_factor, production, growth, gaming_start, n_iterations, uncertainty):
@@ -524,7 +517,7 @@ def run_gaming_monte_carlo(gaming_strategies, baseline_factor, production, growt
     
     return results
 
-with st.spinner(f"Running {n_iterations:,} Monte Carlo iterations for gaming analysis..."):
+with st.spinner(f"🎲 Running {n_iterations:,} Monte Carlo simulations for gaming analysis..."):
     mc_gaming_results = run_gaming_monte_carlo(
         gaming_strategies, baseline_factor, annual_production, growth_rate, 
         gaming_start_year, n_iterations, uncertainty
@@ -569,20 +562,83 @@ t_stat, p_value = simple_ttest(honest_2030_distribution, aggressive_2030_distrib
 col_stat1, col_stat2 = st.columns(2)
 
 with col_stat1:
-    st.markdown("**Gaming Effect Statistics (2030)**")
+    st.markdown("**Gaming Effect Statistics (Monte Carlo Results)**")
+    st.write(f"**Simulations Run**: {n_iterations:,} iterations")
     st.write(f"**Effect Size (Cohen's d)**: {cohens_d:.2f}")
     st.write(f"**Statistical Significance**: p < 0.001" if p_value < 0.001 else f"p = {p_value:.3f}")
     st.write(f"**Gaming Magnitude**: {((honest_mean - aggressive_mean) / honest_mean * 100):.1f}% difference")
     st.write(f"**Baseline Convergence**: ✅ Perfect (2025)")
 
 with col_stat2:
-    st.markdown("**Detectability Analysis**")
+    st.markdown("**Monte Carlo Distribution Analysis**")
     overlap_threshold = 0.05  # 5% overlap threshold
     actual_overlap = len([x for x in aggressive_2030_distribution if min(honest_2030_distribution) <= x <= max(honest_2030_distribution)]) / len(aggressive_2030_distribution)
     
     st.write(f"**Distribution Overlap**: {actual_overlap*100:.1f}%")
     st.write(f"**Gaming Detectability**: {'🔍 Easily Detected' if actual_overlap < overlap_threshold else '⚠️ Hard to Detect'}")
     st.write(f"**Audit Red Flag**: {'🚨 High' if cohens_d > 1.0 else '⚠️ Medium' if cohens_d > 0.5 else '✅ Low'}")
+    st.write(f"**Uncertainty Range**: ±{uncertainty}% per simulation")
+
+# Add Monte Carlo visualization
+st.markdown("**📊 Monte Carlo Distribution Comparison**")
+
+# Create distribution comparison data
+distribution_data = []
+for i, value in enumerate(honest_2030_distribution[:200]):  # Sample for visualization
+    distribution_data.append({'Strategy': 'Honest Accounting', 'Emissions': value, 'Type': 'Monte Carlo Sample'})
+for i, value in enumerate(aggressive_2030_distribution[:200]):
+    distribution_data.append({'Strategy': 'Aggressive Gaming', 'Emissions': value, 'Type': 'Monte Carlo Sample'})
+
+dist_df = pd.DataFrame(distribution_data)
+
+# Create distribution chart
+dist_chart = alt.Chart(dist_df).mark_circle(opacity=0.6, size=30).encode(
+    x=alt.X('Emissions:Q', title='2030 Scope 3 Emissions (tCO₂e)'),
+    y=alt.Y('Strategy:N', title='Gaming Strategy'),
+    color=alt.Color('Strategy:N', 
+                   scale=alt.Scale(domain=['Honest Accounting', 'Aggressive Gaming'], 
+                                 range=['#ff6b6b', '#4ecdc4']),
+                   legend=None),
+    tooltip=['Strategy:N', 'Emissions:Q']
+).properties(
+    width=600,
+    height=150,
+    title=f'Monte Carlo Distribution Samples (200 of {n_iterations:,} simulations shown)'
+)
+
+# Add mean lines
+mean_lines = alt.Chart(pd.DataFrame({
+    'Strategy': ['Honest Accounting', 'Aggressive Gaming'],
+    'Mean_Emissions': [honest_mean, aggressive_mean]
+})).mark_rule(color='black', strokeWidth=3).encode(
+    x='Mean_Emissions:Q',
+    y='Strategy:N'
+)
+
+combined_dist = (dist_chart + mean_lines)
+st.altair_chart(combined_dist, use_container_width=True)
+
+st.caption(f"Each point represents one Monte Carlo simulation. Black lines show means. Clear separation indicates statistically significant gaming effect (Cohen's d = {cohens_d:.2f}).")
+
+with st.expander("🔬 Monte Carlo Simulation Details"):
+    st.markdown(f"""
+    **Simulation Framework:**
+    - **Iterations**: {n_iterations:,} independent simulations
+    - **Uncertainty Model**: Normal distribution with ±{uncertainty}% standard deviation on emission factors
+    - **Timeline Modeling**: Baseline convergence (2025) → Gaming divergence ({gaming_start_year}+)
+    - **Business Growth**: {growth_rate}% annual growth applied consistently across all simulations
+    
+    **Statistical Outputs:**
+    - **Cohen's d Effect Size**: {cohens_d:.3f} ({"Large" if cohens_d > 0.8 else "Medium" if cohens_d > 0.5 else "Small"} effect)
+    - **Distribution Separation**: {(1-actual_overlap)*100:.1f}% non-overlapping samples
+    - **Gaming Magnitude**: Mean difference of {((honest_mean - aggressive_mean) / honest_mean * 100):.1f}%
+    - **Confidence**: {((1-p_value) * 100):.1f}% confidence that difference is not due to chance
+    
+    **Interpretation:**
+    - Values > 0.8 Cohen's d indicate large, easily detectable gaming effects
+    - Distribution overlap < 5% suggests gaming would trigger statistical audit flags
+    - Monte Carlo accounts for real-world uncertainty in emission factor measurements
+    """)
 
 # Call to action and research context
 st.markdown("---")
@@ -642,7 +698,7 @@ with st.expander("Gaming Timeline & Statistical Analysis"):
     
     **Real-World Context:**
     - Gaming timeline mirrors actual corporate reporting cycles
-    - Factor databases span {min([min(factors.values()) for factors in emission_factors.values()]):.2f} - {max([max(factors.values()) for factors in emission_factors.values()]):.2f} kg CO₂e/kg
+    - Factor databases span {min([min(list(factors.values())[:3]) for factors in emission_factors.values()]):.2f} - {max([max(list(factors.values())[:3]) for factors in emission_factors.values()]):.2f} kg CO₂e/kg
     - SBTi compliance threshold: 4.2% annual absolute reduction
     """)
 
