@@ -517,10 +517,10 @@ def run_gaming_monte_carlo(gaming_strategies, baseline_factor, production, growt
     
     return results
 
-with st.spinner(f"🎲 Running {n_iterations:,} Monte Carlo simulations for gaming analysis..."):
+with st.spinner(f"🎲 Running {n_iterations:,} Monte Carlo simulations for gradual gaming analysis..."):
     mc_gaming_results = run_gaming_monte_carlo(
         gaming_strategies, baseline_factor, annual_production, growth_rate, 
-        gaming_start_year, n_iterations, uncertainty
+        gaming_start_year, gaming_duration, n_iterations, uncertainty
     )
 
 # Statistical significance of gaming effect
@@ -705,8 +705,8 @@ with st.expander("Gaming Timeline & Statistical Analysis"):
 # Footer
 st.markdown("---")
 st.markdown(f"""
-**About this tool**: Demonstrates baseline convergence gaming using real emission factor variations from peer-reviewed research. 
-Shows how ONE company can strategically switch factors starting from {gaming_start_year} to appear SBTi-compliant while emissions actually grow.
+**About this tool**: Demonstrates gradual emission factor gaming using real LCA database variations from peer-reviewed research. 
+Shows how ONE company can strategically transition factors over {gaming_duration} years ({gaming_start_year}-{gaming_end_year}) to achieve {years_compliant_gradual:.1f} years of apparent SBTi compliance while emissions actually grow.
 
 *Research by Ramana Gudipudi, Luis Costa, Ponraj Arumugam, Matthew Agarwala, Jürgen P. Kropp, Felix Creutzig*
 """)
