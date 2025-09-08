@@ -1,4 +1,22 @@
-import streamlit as st
+with st.expander("🔬 Monte Carlo Simulation Details"):
+    st.markdown(f"""
+    **Simulation Framework:**
+    - **Iterations**: {n_iterations:,} independent simulations
+    - **Uncertainty Model**: Normal distribution with ±{uncertainty}% standard deviation on emission factors
+    - **Timeline Modeling**: Baseline convergence (2025) → Gaming divergence ({gaming_start_year}+)
+    - **Business Growth**: {growth_rate}% annual growth applied consistently across all simulations
+    
+    **Statistical Outputs:**
+    - **Cohen's d Effect Size**: {cohens_d:.3f} ({"Large" if cohens_d > 0.8 else "Medium" if cohens_d > 0.5 else "Small"} effect)
+    - **Distribution Separation**: {(1-actual_overlap)*100:.1f}% non-overlapping samples
+    - **Gaming Magnitude**: Mean difference of {((honest_mean - aggressive_mean) / honest_mean * 100):.1f}%
+    - **Confidence**: {((1-p_value) * 100):.1f}% confidence that difference is not due to chance
+    
+    **Interpretation:**
+    - Values > 0.8 Cohen's d indicate large, easily detectable gaming effects
+    - Distribution overlap < 5% suggests gaming would trigger statistical audit flags
+    - Monte Carlo accounts for real-world uncertainty in emission factor measurements
+    """)import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
