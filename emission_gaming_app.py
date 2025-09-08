@@ -114,6 +114,10 @@ gaming_start_year = st.sidebar.selectbox(
     help="Year when strategic factor switching begins"
 )
 
+# Calculate gaming duration and end year
+gaming_end_year = 2030
+gaming_duration = gaming_end_year - gaming_start_year
+
 # Monte Carlo settings
 st.sidebar.subheader("Simulation Settings")
 n_iterations = st.sidebar.selectbox("Monte Carlo Iterations", [500, 1000, 2000], index=1)
@@ -352,6 +356,10 @@ real_growth = ((honest_2030 - baseline_emissions) / baseline_emissions) * 100
 apparent_reduction = ((baseline_emissions - aggressive_2030) / baseline_emissions) * 100
 gaming_effect = real_growth + apparent_reduction  # Total gaming impact
 
+# Years of SBTi compliance through gaming
+gaming_annual_rate = apparent_reduction / 5  # Over 5 years
+years_compliant = gaming_annual_rate / sbti_reduction_rate
+
 # Key metrics row
 col1, col2, col3, col4 = st.columns(4)
 
@@ -377,10 +385,6 @@ with col3:
     )
 
 with col4:
-    # Years of SBTi compliance through gaming
-    gaming_annual_rate = apparent_reduction / 5  # Over 5 years
-    years_compliant = gaming_annual_rate / sbti_reduction_rate
-    
     st.metric(
         "SBTi Compliance",
         f"{years_compliant:.1f} years",
@@ -517,10 +521,10 @@ def run_gaming_monte_carlo(gaming_strategies, baseline_factor, production, growt
     
     return results
 
-with st.spinner(f"🎲 Running {n_iterations:,} Monte Carlo simulations for gradual gaming analysis..."):
+with st.spinner(f"🎲 Running {n_iterations:,} Monte Carlo simulations for gaming analysis..."):
     mc_gaming_results = run_gaming_monte_carlo(
         gaming_strategies, baseline_factor, annual_production, growth_rate, 
-        gaming_start_year, gaming_duration, n_iterations, uncertainty
+        gaming_start_year, n_iterations, uncertainty
     )
 
 # Statistical significance of gaming effect
@@ -687,6 +691,7 @@ with st.expander("Gaming Timeline & Statistical Analysis"):
     **Baseline Convergence Approach:**
     - **2025 Baseline**: All strategies use conservative factors → {baseline_factor:.3f} kg CO₂e/kg weighted average
     - **Gaming Start**: {gaming_start_year} → Strategic factor switching begins
+    - **Gaming Duration**: {gaming_duration} years ({gaming_start_year}-{gaming_end_year})
     - **Shared Reality**: Same business growth rate ({growth_rate}%) across all strategies
     - **Gaming Effect**: Apparent reductions while actual emissions grow
     
@@ -705,8 +710,8 @@ with st.expander("Gaming Timeline & Statistical Analysis"):
 # Footer
 st.markdown("---")
 st.markdown(f"""
-**About this tool**: Demonstrates gradual emission factor gaming using real LCA database variations from peer-reviewed research. 
-Shows how ONE company can strategically transition factors over {gaming_duration} years ({gaming_start_year}-{gaming_end_year}) to achieve {years_compliant_gradual:.1f} years of apparent SBTi compliance while emissions actually grow.
+**About this tool**: Demonstrates emission factor gaming using real LCA database variations from peer-reviewed research. 
+Shows how ONE company can strategically transition factors over {gaming_duration} years ({gaming_start_year}-{gaming_end_year}) to achieve {years_compliant:.1f} years of apparent SBTi compliance while emissions actually grow.
 
 *Research by Ramana Gudipudi, Luis Costa, Ponraj Arumugam, Matthew Agarwala, Jürgen P. Kropp, Felix Creutzig*
 """)
